@@ -67,7 +67,7 @@ start(Start_info)->
 %%
 %% @end
 %%--------------------------------------------------------------------
-start(Supervisor_name,Registration_type,Start_info)->
+start(Registration_type,Supervisor_name,Start_info)->
     supervisor:start_link({Registration_type,Supervisor_name},?MODULE,Start_info).
 
 %%--------------------------------------------------------------------
@@ -83,12 +83,14 @@ add_child(Supervisor_name,Child_name,Child_module,Child_type)->
                                                 start => {Child_module,start,[Child_name,local,[]]},
                                                 restart => permanent,
                                                 type => Child_type,
-                                                modules => [Child_module]}).%generate_spec(Child_module,Child_name,Child_type)).
+                                                modules => [Child_module]}),%generate_spec(Child_module,Child_name,Child_type)).
+        gen_statem:call(rr_state_machine,{add,Child_name}).
 
 
 remove_child(Supervisor_name,Child_name)->
         supervisor:terminate_child(Supervisor_name,Child_name),
-        supervisor:delete_child(Supervisor_name,Child_name).
+        supervisor:delete_child(Supervisor_name,Child_name),
+        gen_statem:call(rr_state_machine,{remove,Child_name}).
 
 %% Mandatory callback functions
 
@@ -106,7 +108,14 @@ init(Start_info) ->
     %%
     %% The pattern for the value of this function is, 
     %% {ok,{{restart_strategy,intensity,period},children}}
-    {ok,{{one_for_one,1000,5},[]}}.
+    Childspecs = [#{id => rr_state_machine,
+          start => {rr_state_machine,start,[local,rr_state_machine,[]]},% This template forces local registration of the child and
+                                                  % forces it to startup without parameters. 
+          restart => transient,
+          shutdown => 1,
+          type => worker,
+          modules => [rr_state_machine]}], 
+    {ok,{{one_for_one,1000,5},Childspecs}}.
 
 %%%===================================================================
 %%% Internal functions

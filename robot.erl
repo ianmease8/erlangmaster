@@ -34,10 +34,10 @@
 -endif.
 
 %% API
--export([start/2,start_link/2,stop/1,down/1,up/1,open/1,close/1,go_to_box_side/1,go_to_computer_side/1]).
+-export([start/2,start_link/1,start_link/2,stop/1,down/1,up/1,open/1,close/1,go_to_box_side/1,go_to_computer_side/1]).
 
 %% Supervisor Callbacks
--export([terminate/3,code_change/4,init/0,callback_mode/0]).
+-export([terminate/3,code_change/4,init/1,callback_mode/0]).
 %% State Callbacks
 -export([handle_event/4]).
 
@@ -70,6 +70,10 @@ start(Statem_name,Initial_state) ->
 start_link(Statem_name,Initial_state) ->
     gen_statem:start_link({local,Statem_name},?MODULE,Initial_state,[]).
 
+-spec start_link(atom()) -> {ok, atom(), tuple()}.
+start_link(Statem_name) ->
+    gen_statem:start_link({local,Statem_name},?MODULE,{up,computer_side,open},[]).
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -93,17 +97,19 @@ terminate(_Reason, _State, _Data) ->
 code_change(_Vsn, State, Data, _Extra) ->
     {ok,State,Data}.
 %% @private
-init() ->
+init(State) ->
     %% Set the initial state to be the list of available Worker_ids
     %% and types.
-    {up,computer_side,open}.
+    {ok,State,{name,[]}}.
     % {ok,ready,Worker_ids}.
 %% @private
 callback_mode() -> handle_event_function.
 
 %%% state callback(s)
 -spec down(term()) -> ok.
-down(Boxer) -> gen_statem:call(Boxer,down).
+down(Boxer) ->
+    % gen_statem:call(gen_statem:call(distributer,get_next),down).
+    gen_statem:call(Boxer,down).
 
 up(Boxer) -> gen_statem:call(Boxer,up).
 
@@ -122,53 +128,62 @@ open(Boxer) -> gen_statem:call(Boxer,open).
 %     %Modify the state data and replace State_data below with the modified state data.
 %     {next_state, ready,{Statem_name,State_data},[{reply,From,Statem_name}]}.
 
-handle_event({call,From}, down, {up,computer_side,open},{Statem_name,State_data}) ->
+% handle_event({call,From}, down, {up,computer_side,open}, _) ->
+handle_event({call,From}, down, {up,computer_side,open}, {_Statem_name,State_data}) ->
     %Modify the state data and replace State_data below with the modified state data.
-    {reply,
-        is_down, 
-        {down,computer_side,open}};
+    {next_state, {down,computer_side,open},{{down,computer_side,open},State_data},[{reply,From,is_down}]};
+    % {reply,
+    %     is_down, 
+    %     {down,computer_side,open}};
+handle_event({call,From}, down, {up,box_side,close}, {_Statem_name,State_data}) ->
+    %Modify the state data and replace State_data below with the modified state data.
+    {next_state, {down,box_side,close},{{down,box_side,close},State_data},[{reply,From,is_down}]};
+    % {reply, 
+    %     is_down,
+    %     {down,box_side,close}};
 
-handle_event({call,From}, down, {up,box_side,close},{Statem_name,State_data}) ->
-    %Modify the state data and replace State_data below with the modified state data.
-    {reply, 
-        is_down,
-        {down,box_side,close}};
+handle_event({call,From}, up, {down,computer_side,close},{_Statem_name,State_data}) ->
+    %Modify the state data and replace State_data below with the modified state data.  
+    {next_state, {up,computer_side,close},{{up,computer_side,close},State_data},[{reply,From,is_up}]};
+    % {reply, 
+    %     is_up,
+    %     {up,computer_side,close}};
 
-handle_event({call,From}, up, {down,computer_side,close},{Statem_name,State_data}) ->
+handle_event({call,From}, up, {down,box_side,open},{_Statem_name,State_data}) ->
     %Modify the state data and replace State_data below with the modified state data.
-    {reply, 
-        is_up,
-        {up,computer_side,close}};
+    {next_state, {up,box_side,open},{{up,box_side,open},State_data},[{reply,From,is_up}]};
+    % {reply, 
+    %     is_up,
+    %     {up,box_side,open}};
 
-handle_event({call,From}, up, {down,box_side,open},{Statem_name,State_data}) ->
+handle_event({call,From}, go_to_box_side, {up,computer_side,close},{_Statem_name,State_data}) ->
     %Modify the state data and replace State_data below with the modified state data.
-    {reply, 
-        is_up,
-        {up,box_side,open}};
+    {next_state, {up,box_side,close},{{up,box_side,close},State_data},[{reply,From,is_over_box}]};
+    % {reply, 
+    %     is_over_box,
+    %     {up,box_side,close}};
 
-handle_event({call,From}, go_to_box_side, {up,computer_side,close},{Statem_name,State_data}) ->
+handle_event({call,From}, go_to_computer_side, {up,box_side,open}, {_Statem_name,State_data}) ->
     %Modify the state data and replace State_data below with the modified state data.
-    {reply, 
-        is_over_box,
-        {up,box_side,close}};
+    {next_state, {up,computer_side,open},{{up,computer_side,open},State_data},[{reply,From,is_over_computer}]};
+    % {reply, 
+    %     is_over_computer,
+    %     {up,computer_side,open}};
 
-handle_event({call,From}, go_to_computer_side, {up,box_side,open},{Statem_name,State_data}) ->
+% handle_event({call,From}, close, {down,computer_side,open},_) ->
+handle_event({call,From}, close, {down,computer_side,open},{_Statem_name,State_data}) ->
     %Modify the state data and replace State_data below with the modified state data.
-    {reply, 
-        is_over_computer,
-        {up,computer_side,open}};
+    {next_state, {down,computer_side,close},{{down,computer_side,close},State_data},[{reply,From,is_closed}]};
+    % {reply,
+    %     is_closed,
+    %     {down,computer_side,close}};
 
-handle_event({call,From}, close, {down,computer_side,open},{Statem_name,State_data}) ->
+handle_event({call,From}, open, {down,box_side,close},{_Statem_name,State_data}) ->
     %Modify the state data and replace State_data below with the modified state data.
-    {reply,
-        is_closed,
-        {down,computer_side,close}};
-
-handle_event({call,From}, open, {down,box_side,close},{Statem_name,State_data}) ->
-    %Modify the state data and replace State_data below with the modified state data.
-    {reply, 
-        is_open,
-        {down,box_side,open}}.%,{Statem_name,State_data},[{reply,From,is_open}]}.
+    {next_state, {down,box_side,open},{{down,box_side,open},State_data},[{reply,From,is_open}]}.
+    % {reply, 
+    %     is_open,
+    %     {down,box_side,open}}.
 
 %% This code is included in the compiled code only if 
 %% 'rebar3 eunit' is being executed.
@@ -180,7 +195,7 @@ open_test() ->
         fun() -> gen_statem:start_link({local,floyd},?MODULE,{up,computer_side,open},[]) end,
         fun() -> gen_server:stop(floyd) end,
         [
-            ?assertMatch({reply,is_open,{down,box_side,open}}, handle_event({call,coach},open,{down,box_side,close},{floyd,state_data})),
+            ?assertMatch({next_state, {down,box_side,open},{{down,box_side,open},_},[{reply,_,is_open}]}, handle_event({call,coach},open,{down,box_side,close},{floyd,state_data})),
             ?assertException(error, function_clause, handle_event({call,coach},open,{up,computer_side,open},{floyd,state_data})),
             ?assertException(error, function_clause, handle_event({call,coach},1,{down,box_side,close},{floyd,state_data}))
         ]}.
@@ -190,7 +205,7 @@ close_test() ->
         fun() -> gen_statem:start_link({local,floyd_close},?MODULE,{up,computer_side,open},[]) end,
         fun() -> gen_server:stop(floyd_close) end,
         [
-            ?assertMatch({reply,is_closed,{down,computer_side,close}}, handle_event({call,coach},close,{down,computer_side,open},{floyd_close,state_data})),
+            ?assertMatch({next_state, {down,computer_side,close},{{down,computer_side,close},_},[{reply,_,is_closed}]}, handle_event({call,coach},close,{down,computer_side,open},{floyd_close,state_data})),
             ?assertException(error, function_clause, handle_event({call,coach},close,{up,computer_side,open},{floyd_close,state_data})),
             ?assertException(error, function_clause, handle_event({call,coach},1,{down,computer_side,open},{floyd_close,state_data}))
         ]}.
@@ -200,8 +215,8 @@ down_test() ->
         fun() -> gen_statem:start_link({local,floyd_down},?MODULE,{up,computer_side,open},[]) end,
         fun() -> gen_server:stop(floyd_close) end,
         [
-            ?assertMatch({reply,is_down,{down,computer_side,open}}, handle_event({call,coach},down,{up,computer_side,open},{floyd_down,state_data})),
-            ?assertMatch({reply,is_down,{down,box_side,close}}, handle_event({call,coach},down,{up,box_side,close},{floyd_down,state_data})),
+            ?assertMatch({next_state, {down,computer_side,open},{{down,computer_side,open},_},[{reply,_,is_down}]}, handle_event({call,coach},down,{up,computer_side,open},{floyd_down,state_data})),
+            ?assertMatch({next_state, {down,box_side,close},{{down,box_side,close},_},[{reply,_,is_down}]}, handle_event({call,coach},down,{up,box_side,close},{floyd_down,state_data})),
             ?assertException(error, function_clause, handle_event({call,coach},down,{down,computer_side,open},{floyd_down,state_data})),
             ?assertException(error, function_clause, handle_event({call,coach},1,{down,computer_side,open},{floyd_down,state_data}))
         ]}.
@@ -211,7 +226,7 @@ go_to_box_side_test() ->
         fun() -> gen_statem:start_link({local,floyd_box_side},?MODULE,{up,computer_side,open},[]) end,
         fun() -> gen_server:stop(floyd_box_side) end,
         [
-            ?assertMatch({reply,is_over_box,{up,box_side,close}}, handle_event({call,coach},go_to_box_side,{up,computer_side,close},{floyd_box_side,state_data})),
+            ?assertMatch({next_state, {up,box_side,close},{{up,box_side,close},_},[{reply,_,is_over_box}]}, handle_event({call,coach},go_to_box_side,{up,computer_side,close},{floyd_box_side,state_data})),
             ?assertException(error, function_clause, handle_event({call,coach},go_to_box_side,{up,computer_side,open},{floyd_box_side,state_data})),
             ?assertException(error, function_clause, handle_event({call,coach},1,{down,computer_side,open},{floyd_box_side,state_data}))
         ]}.
@@ -221,7 +236,7 @@ go_to_computer_side_test() ->
         fun() -> gen_statem:start_link({local,floyd_computer_side},?MODULE,{up,computer_side,open},[]) end,
         fun() -> gen_server:stop(floyd_computer_side) end,
         [
-            ?assertMatch({reply,is_over_computer,{up,computer_side,open}}, handle_event({call,coach},go_to_computer_side,{up,box_side,open},{floyd_box_side,state_data})),
+            ?assertMatch({next_state, {up,computer_side,open},{{up,computer_side,open},_},[{reply,_,is_over_computer}]},handle_event({call,coach},go_to_computer_side,{up,box_side,open},{floyd_box_side,state_data})),
             ?assertException(error, function_clause, handle_event({call,coach},go_to_computer_side,{up,computer_side,open},{floyd_box_side,state_data})),
             ?assertException(error, function_clause, handle_event({call,coach},1,{up,box_side,open},{floyd_down,state_data}))
         ]}.
@@ -231,8 +246,8 @@ up_test() ->
         fun() -> gen_statem:start_link({local,floyd_up},?MODULE,{up,computer_side,open},[]) end,
         fun() -> gen_server:stop(floyd_close) end,
         [
-            ?assertMatch({reply,is_up,{up,computer_side,close}}, handle_event({call,coach},up,{down,computer_side,close},{floyd_up,state_data})),
-            ?assertMatch({reply,is_up,{up,box_side,open}}, handle_event({call,coach},up,{down,box_side,open},{floyd_up,state_data})),
+            ?assertMatch({next_state, {up,computer_side,close},{{up,computer_side,close},_},[{reply,_,is_up}]}, handle_event({call,coach},up,{down,computer_side,close},{floyd_up,state_data})),
+            ?assertMatch({next_state, {up,box_side,open},{{up,box_side,open},_},[{reply,_,is_up}]}, handle_event({call,coach},up,{down,box_side,open},{floyd_up,state_data})),
             ?assertException(error, function_clause, handle_event({call,coach},up,{down,computer_side,open},{floyd_up,state_data})),
             ?assertException(error, function_clause, handle_event({call,coach},1,{down,computer_side,open},{floyd_up,state_data}))
         ]}.
